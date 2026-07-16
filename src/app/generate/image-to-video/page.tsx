@@ -5,9 +5,8 @@ import {
   API_BASE,
   generateWorkflow,
   getAiJobStatus,
-  getOrCreateDefaultProject,
-  type Project,
 } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MODELS = [
@@ -17,7 +16,7 @@ const MODELS = [
 ];
 
 export default function ImageToVideoPage() {
-  const [project, setProject] = useState<Project | null>(null);
+  const { project } = useProject();
   const [model, setModel] = useState("ti2v-5b");
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -40,22 +39,6 @@ export default function ImageToVideoPage() {
   useEffect(() => {
     return () => clearPolling();
   }, [clearPolling]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadProject() {
-      try {
-        const p = await getOrCreateDefaultProject();
-        if (mounted) setProject(p);
-      } catch (e) {
-        if (mounted) setError((e as Error).message || "Failed to load project");
-      }
-    }
-    loadProject();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = e.target.files?.[0];
@@ -102,6 +85,7 @@ export default function ImageToVideoPage() {
       setError("Project not ready yet. Please wait.");
       return;
     }
+    const pid = project.id;
     setLoading(true);
     setError(null);
     setOutputUrl(null);
@@ -110,7 +94,7 @@ export default function ImageToVideoPage() {
     try {
       const base64 = await fileToBase64(file);
       const job = await generateWorkflow({
-        project_id: project.id,
+        project_id: pid,
         model,
         prompt,
         image: base64,

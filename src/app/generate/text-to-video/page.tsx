@@ -1,12 +1,11 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   API_BASE,
   generateWorkflow,
   getAiJobStatus,
-  getOrCreateDefaultProject,
-  type Project,
 } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
 
 const MODELS = [
   { value: "ti2v-5b", label: "TI2V-5B (Fast, 720p)", vram: "8GB" },
@@ -15,7 +14,7 @@ const MODELS = [
 ];
 
 export default function TextToVideoPage() {
-  const [project, setProject] = useState<Project | null>(null);
+  const { project } = useProject();
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState("ti2v-5b");
   const [steps, setSteps] = useState(30);
@@ -37,22 +36,6 @@ export default function TextToVideoPage() {
   useEffect(() => {
     return () => clearPolling();
   }, [clearPolling]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadProject() {
-      try {
-        const p = await getOrCreateDefaultProject();
-        if (mounted) setProject(p);
-      } catch (e) {
-        if (mounted) setError((e as Error).message || "Failed to load project");
-      }
-    }
-    loadProject();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   async function pollStatus(id: string) {
     clearPolling();
@@ -83,6 +66,7 @@ export default function TextToVideoPage() {
       setError("Project not ready yet. Please wait.");
       return;
     }
+    const pid = project.id;
     setLoading(true);
     setError(null);
     setStatus("queued");
@@ -90,7 +74,7 @@ export default function TextToVideoPage() {
     setOutputUrl(null);
     try {
       const job = await generateWorkflow({
-        project_id: project.id,
+        project_id: pid,
         model,
         prompt,
         steps,

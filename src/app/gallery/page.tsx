@@ -3,28 +3,26 @@
 import { useEffect, useState } from "react";
 import {
   API_BASE,
-  getOrCreateDefaultProject,
   getProjectAssets,
   type Asset,
-  type Project,
 } from "@/lib/api";
+import { useProject } from "@/lib/project-context";
 
 export default function GalleryPage() {
-  const [project, setProject] = useState<Project | null>(null);
+  const { project } = useProject();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!project) return;
+    const pid = project.id;
+
     let mounted = true;
 
     async function loadData() {
       try {
-        const p = await getOrCreateDefaultProject();
-        if (!mounted) return;
-        setProject(p);
-
-        const list = await getProjectAssets(p.id);
+        const list = await getProjectAssets(pid);
         if (!mounted) return;
         setAssets(list);
       } catch (e) {
@@ -39,7 +37,7 @@ export default function GalleryPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [project]);
 
   return (
     <div className="max-w-5xl mx-auto p-6">
