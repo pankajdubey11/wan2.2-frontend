@@ -1,61 +1,97 @@
 "use client";
+
 import { useEffect, useState } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-interface Job {
-  job_id: string;
-  status: string;
-  output_url?: string;
-  created_at: string;
-  prompt: string;
-}
+import {
+  API_BASE,
+  getOrCreateDefaultProject,
+  getProjectAssets,
+  type Asset,
+  type Project,
+} from "@/lib/api";
 
 export default function GalleryPage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchJobs() {
+    let mounted = true;
+
+    async function loadData() {
       try {
-        const res = await fetch(`${API_BASE}/api/gallery`);
-        if (res.ok) {
-          setJobs(await res.json());
-        }
-      } catch {
-        // API might not have gallery endpoint yet
+        const p = await getOrCreateDefaultProject();
+        if (!mounted) return;
+        setProject(p);
+
+        const list = await getProjectAssets(p.id);
+        if (!mounted) return;
+        setAssets(list);
+      } catch (e) {
+        if (!mounted) return;
+        setError((e as Error).message || "Failed to load gallery");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     }
-    fetchJobs();
+
+    loadData();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">Gallery</h1>
+    <div className="max-w-5xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-2">Gallery</h1>
+      <p className="text-sm text-gray-600 mb-6">
+        Project: <strong>{project?.name ?? "Loading..."}</strong>
+      </p>
+
       {loading ? (
         <p className="text-gray-500">Loading...</p>
-      ) : jobs.length === 0 ? (
+      ) : error ? (
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{error}</div>
+      ) : assets.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <div className="text-4xl mb-3">🎥</div>
-          <p>No videos generated yet.</p>
-          <p className="text-sm mt-1">Go to Text-to-Video or Image-to-Video to create one.</p>
+          <p>No assets generated yet.</p>
+          <p className="text-sm mt-1">Create videos from Text-to-Video or Image-to-Video.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {jobs.map((job) => (
-            <div key={job.job_id} className="border rounded-lg overflow-hidden">
-              {job.status === "completed" && job.output_url ? (
-                <video controls className="w-full" src={`${API_BASE}${job.output_url}`} />
-              ) : (
-                <div className="bg-gray-100 h-32 flex items-center justify-center text-gray-400">
-                  {job.status}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {assets.map((asset) => {
+            const version = asset.latest_version;
+            const downloadUrl = version ? `${API_BASE}${version.download_url}` : null;
+            return (
+              <div key={asset.id} className="border rounded-lg overflow-hidden bg-white">
+                {downloadUrl ? (
+                  <video controls className="w-full" src={downloadUrl} />
+                ) : (
+                  <div className="bg-gray-100 h-40 flex items-center justify-center text-gray-400 text-sm">
+                    No playable version
+                  </div>
+                )}
+                <div className="p-3 space-y-1">
+                  <p className="text-sm font-medium text-gray-900 truncate">{asset.title || "Generated Video"}</p>
+                  <p className="text-xs text-gray-500">Asset ID: {asset.id.slice(0, 8)}...</p>
+                  <p className="text-xs text-gray-500">
+                    Version: {version ? `v${version.version_number}` : "N/A"}
+                  </p>
+                  {downloadUrl && (
+                    <a
+                      href={downloadUrl}
+                      className="inline-block text-xs text-blue-600 hover:text-blue-800"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Download MP4
+                    </a>
+                  )}
                 </div>
-              )}
-              <div className="p-2 text-xs text-gray-500 truncate">{job.prompt}</div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

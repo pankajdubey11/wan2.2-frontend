@@ -1,10 +1,24 @@
 "use client";
-import { useState, useEffect, useRef, useCallback } from "react";
-import { generateVideo, getJobStatus } from "@/lib/api";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  API_BASE,
+  generateWorkflow,
+  getAiJobStatus,
+  getOrCreateDefaultProject,
+  type Project,
+} from "@/lib/api";
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MODELS = [
+  { value: "ti2v-5b", label: "TI2V-5B (Fast, 720p)", vram: "8GB" },
+  { value: "i2v-14b", label: "I2V-A14B (Quality, 720p)", vram: "16GB" },
+  { value: "t2v-14b", label: "T2V-A14B (Text-only, 720p)", vram: "24GB" },
+];
 
 export default function ImageToVideoPage() {
+  const [project, setProject] = useState<Project | null>(null);
+  const [model, setModel] = useState("ti2v-5b");
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -27,31 +41,47 @@ export default function ImageToVideoPage() {
     return () => clearPolling();
   }, [clearPolling]);
 
+  useEffect(() => {
+    let mounted = true;
+    async function loadProject() {
+      try {
+        const p = await getOrCreateDefaultProject();
+        if (mounted) setProject(p);
+      } catch (e) {
+        if (mounted) setError((e as Error).message || "Failed to load project");
+      }
+    }
+    loadProject();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (f.size > MAX_FILE_SIZE) {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    if (selected.size > MAX_FILE_SIZE) {
       setError("File too large. Max 10MB.");
       return;
     }
-    if (!f.type.startsWith("image/")) {
+    if (!selected.type.startsWith("image/")) {
       setError("Only image files allowed.");
       return;
     }
     setError(null);
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+    setFile(selected);
+    setPreview(URL.createObjectURL(selected));
   }
 
   async function pollStatus(id: string) {
     clearPolling();
     intervalRef.current = setInterval(async () => {
       try {
-        const job = await getJobStatus(id);
+        const job = await getAiJobStatus(id);
         setStatus(job.status);
         setProgress(job.progress);
         if (job.status === "completed") {
-          setOutputUrl(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/download/${id}`);
+          setOutputUrl(job.output_url ? `${API_BASE}${job.output_url}` : null);
           setLoading(false);
           clearPolling();
         } else if (job.status === "failed") {
@@ -68,16 +98,26 @@ export default function ImageToVideoPage() {
 
   async function handleGenerate() {
     if (!file) return;
+    if (!project) {
+      setError("Project not ready yet. Please wait.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setOutputUrl(null);
+    setStatus("queued");
+    setProgress(0);
     try {
       const base64 = await fileToBase64(file);
-      const job = await generateVideo({ prompt, image: base64 });
-      setStatus("queued");
+      const job = await generateWorkflow({
+        project_id: project.id,
+        model,
+        prompt,
+        image: base64,
+      });
       pollStatus(job.job_id);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError((e as Error).message);
       setLoading(false);
     }
   }
@@ -95,6 +135,25 @@ export default function ImageToVideoPage() {
     <div className="max-w-2xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">Image to Video</h1>
 
+      <div className="mb-4 text-sm text-gray-600 bg-gray-50 border rounded p-2">
+        Project: <strong>{project?.name ?? "Loading..."}</strong>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium mb-1">Model</label>
+        <select
+          className="w-full p-2 border rounded"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        >
+          {MODELS.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label} ({m.vram})
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div
         className="border-2 border-dashed rounded-lg p-8 text-center mb-4 cursor-pointer hover:border-blue-400 transition"
         onClick={() => fileRef.current?.click()}
@@ -107,7 +166,13 @@ export default function ImageToVideoPage() {
             <p className="text-gray-400 text-sm mt-1">Max 10MB, PNG/JPG</p>
           </div>
         )}
-        <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleFile} />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg"
+          className="hidden"
+          onChange={handleFile}
+        />
       </div>
 
       <textarea
@@ -145,9 +210,7 @@ export default function ImageToVideoPage() {
               />
             </div>
           )}
-          {outputUrl && (
-            <video className="w-full mt-4 rounded" controls src={outputUrl} />
-          )}
+          {outputUrl && <video className="w-full mt-4 rounded" controls src={outputUrl} />}
         </div>
       )}
     </div>
